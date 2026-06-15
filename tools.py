@@ -16,6 +16,7 @@ import os
 
 from dotenv import load_dotenv
 from groq import Groq
+import json
 
 from utils.data_loader import load_listings
 
@@ -35,6 +36,11 @@ def _get_groq_client():
 
 
 # ── Tool 1: search_listings ───────────────────────────────────────────────────
+def _size_matches(user_size, listing_size):
+    user_size = user_size.lower()
+
+    parts = listing_size.lower().replace("/", " ").replace("(", " ").replace(")", " ").split()
+    return user_size in parts
 
 def search_listings(
     description: str,
@@ -59,18 +65,40 @@ def search_listings(
     Each listing dict has the following fields:
         id, title, description, category, style_tags (list), size,
         condition, price (float), colors (list), brand, platform
-
-    TODO:
-        1. Load all listings with load_listings().
-        2. Filter by max_price and size (if provided).
-        3. Score each remaining listing by keyword overlap with `description`.
-        4. Drop any listings with a score of 0 (no relevant matches).
-        5. Sort by score, highest first, and return the listing dicts.
-
-    Before writing code, fill in the Tool 1 section of planning.md.
     """
     # Replace this with your implementation
-    return []
+    listings = load_listings()
+
+    # Filtering by max_price if available
+    if max_price is not None:
+        listings = [listing for listing in listings if listing["price"] <= max_price]
+
+    # Filtering by sze if available
+    if size is not None:
+        listings = [listing for listing in listings if _size_matches(size, listing["size"])]
+    
+    # keyword matching
+    keywords = description.lower().split()
+    scored = []
+
+    for listing in listings:
+        # Build one big searchable string from relevant fields
+        searchable = " ".join([
+            listing["title"],
+            listing["description"],
+            listing["category"],
+            " ".join(listing["style_tags"]),
+            " ".join(listing["colors"]),
+            listing["brand"] or ""
+        ]).lower()
+
+        score = sum(1 for keyword in keywords if keyword in searchable)
+        if score > 0:
+            scored.append((score, listing))
+    
+    # Sorting by score descending
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return [listing for score, listing in scored]
 
 
 # ── Tool 2: suggest_outfit ────────────────────────────────────────────────────
