@@ -16,7 +16,8 @@ import os
 
 from dotenv import load_dotenv
 from groq import Groq
-import json
+from prompts import SUGGEST_OUTFIT_SYSTEM, SUGGEST_OUTFIT_WITH_WARDROBE, SUGGEST_OUTFIT_EMPTY_WARDROBE
+
 
 from utils.data_loader import load_listings
 
@@ -128,8 +129,41 @@ def suggest_outfit(new_item: dict, wardrobe: dict) -> str:
 
     Before writing code, fill in the Tool 2 section of planning.md.
     """
-    # Replace this with your implementation
-    return ""
+    client = _get_groq_client()
+
+    item_desc = (
+        f"{new_item['title']} ({new_item['category']}, "
+        f"{', '.join(new_item['colors'])}, "
+        f"{', '.join(new_item['style_tags'])})"
+    )
+
+    if wardrobe and wardrobe.get("items"):
+        wardrobe_text = "\n".join(
+            f"- {item['name']} ({item['category']}, {', '.join(item['colors'])})"
+            for item in wardrobe['items']
+            )
+        
+        user_prompt = SUGGEST_OUTFIT_WITH_WARDROBE.format(
+            item_desc=item_desc, wardrobe_text=wardrobe_text
+        )
+    
+    else:
+        user_prompt = SUGGEST_OUTFIT_EMPTY_WARDROBE.format(
+            item_desc=item_desc
+        )
+    
+    try:
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {"role": "system", "content": SUGGEST_OUTFIT_SYSTEM},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.7
+        )
+        return response.choices[0].message.content
+    except Exception:
+        return "Couldn't generate outfit suggestions right now. Please try again later."
 
 
 # ── Tool 3: create_fit_card ───────────────────────────────────────────────────
