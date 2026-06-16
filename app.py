@@ -67,9 +67,11 @@ def handle_query(user_query: str, wardrobe_choice: str) -> tuple[str, str, str]:
     if result_session["error"]:
         return result_session["error"], "", ""
     
-    selected_item = _format_listing(result_session["selected_item"])
+    listing_text = _format_listing(result_session["selected_item"])
+    if result_session.get("search_note"):
+        listing_text = f"ℹ️ {result_session['search_note']}\n\n{listing_text}"
 
-    return selected_item, result_session["outfit_suggestion"], result_session["fit_card"]
+    return listing_text, result_session["outfit_suggestion"], result_session["fit_card"]
 
 
 # ── interface ─────────────────────────────────────────────────────────────────

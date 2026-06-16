@@ -70,8 +70,50 @@ def _new_session(query: str, wardrobe: dict) -> dict:
         "wardrobe": wardrobe,        # user's wardrobe dict
         "outfit_suggestion": None,   # string returned by suggest_outfit
         "fit_card": None,            # string returned by create_fit_card
+        "search_note": None,         # set if search filters were loosened to find results
         "error": None,               # set if the interaction ended early
     }
+
+
+# ── search with fallback ────────────────────────────────────────────────────────
+
+def _search_with_fallback(parsed: dict) -> tuple[list[dict], str | None]:
+    """
+    Run search_listings, loosening constraints if the first attempt is empty.
+
+    Only filters that were actually set get relaxed, and price is relaxed before
+    size — size is a physical constraint (a wrong-size item won't fit) while price
+    is a soft preference, so we keep the user in their real size as long as we can.
+
+    Returns:
+        (results, note) where note is None on an exact match, or a short sentence
+        describing what was loosened. results is [] if nothing was found even after
+        relaxing every set filter (or there were no filters to relax).
+    """
+    desc = parsed["description"]
+    size = parsed.get("size")
+    price = parsed.get("max_price")
+
+    # Tier 1: full query as the user expressed it.
+    results = search_listings(desc, size, price)
+    if results:
+        return results, None
+
+    # Tier 2: drop the price ceiling (only if one was set).
+    if price is not None:
+        results = search_listings(desc, size, None)
+        if results:
+            where = f" in size {size}" if size else ""
+            return results, f"No matches under ${price:.0f}{where} — showing items at all prices."
+
+    # Tier 3: also drop the size filter (only if one was set).
+    if size is not None:
+        results = search_listings(desc, None, None)
+        if results:
+            return results, f"No matches in size {size} — showing all sizes and prices."
+
+    # Nothing left to loosen, or still empty after loosening everything.
+    return [], None
 
 
 # ── planning loop ─────────────────────────────────────────────────────────────
@@ -124,19 +166,22 @@ def run_agent(query: str, wardrobe: dict) -> dict:
     # Parsing User Query
     session["parsed"] = _parse_user_query(query=query)
 
-    # Calling Tool1: search_listings
-    search_results = search_listings(
-        description=session["parsed"]["description"],
-        size=session["parsed"]["size"],
-        max_price=session["parsed"]["max_price"]
-    )
+    # Calling Tool1: search_listings (with fallback loosening on empty results)
+    search_results, search_note = _search_with_fallback(session["parsed"])
 
     if not search_results:
-        session["error"] = "No listings found matching your search. Try broadening your filters."
+        relaxed = session["parsed"].get("size") or session["parsed"].get("max_price")
+        session["error"] = (
+            "No listings matched even after removing your size and price filters. "
+            "Try different keywords."
+            if relaxed else
+            f"No listings match '{session['parsed']['description']}'. Try different keywords."
+        )
         return session
-    
+
     session["search_results"] = search_results
     session["selected_item"] = search_results[0]
+    session["search_note"] = search_note
     
     # Calling Tool2: suggest_outfit
     session["outfit_suggestion"] = suggest_outfit(new_item=session["selected_item"], wardrobe=session["wardrobe"])
