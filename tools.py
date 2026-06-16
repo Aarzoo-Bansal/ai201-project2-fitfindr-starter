@@ -12,28 +12,9 @@ Tools:
     create_fit_card(outfit, new_item)               → str
 """
 
-import os
-
-from dotenv import load_dotenv
-from groq import Groq
 from prompts import SUGGEST_OUTFIT_SYSTEM, SUGGEST_OUTFIT_WITH_WARDROBE, SUGGEST_OUTFIT_EMPTY_WARDROBE, CREATE_FIT_CARD_SYSTEM, CREATE_FIT_CARD_USER
-
-
 from utils.data_loader import load_listings
-
-load_dotenv()
-
-
-# ── Groq client ───────────────────────────────────────────────────────────────
-
-def _get_groq_client():
-    """Initialize and return a Groq client using GROQ_API_KEY from .env."""
-    api_key = os.environ.get("GROQ_API_KEY")
-    if not api_key:
-        raise ValueError(
-            "GROQ_API_KEY not set. Add it to a .env file in the project root."
-        )
-    return Groq(api_key=api_key)
+from utils.llm_client import get_groq_client
 
 
 # ── Tool 1: search_listings ───────────────────────────────────────────────────
@@ -129,7 +110,7 @@ def suggest_outfit(new_item: dict, wardrobe: dict) -> str:
 
     Before writing code, fill in the Tool 2 section of planning.md.
     """
-    client = _get_groq_client()
+    client = get_groq_client()
 
     item_fields = dict(
         title=new_item["title"],
@@ -191,7 +172,7 @@ def create_fit_card(outfit: str, new_item: dict) -> str:
     if not outfit or not outfit.strip():
         return "Couldn't generate a fit card — no outfit suggestion was provided."
 
-    client = _get_groq_client()
+    client = get_groq_client()
 
     user_prompt = CREATE_FIT_CARD_USER.format(
         title=new_item["title"],
