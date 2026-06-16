@@ -1,4 +1,4 @@
-from tools import search_listings, suggest_outfit
+from tools import search_listings, suggest_outfit, create_fit_card
 from utils.data_loader import get_example_wardrobe, get_empty_wardrobe
 
 def test_search_returns_results():
@@ -43,3 +43,41 @@ def test_suggest_outfit_references_wardrobe_pieces():
         for item in wardrobe["items"]
     )
     assert has_reference, "Output should reference at least one wardrobe piece by name"
+
+
+# ── create_fit_card tests ────────────────────────────────────────────────────
+
+def test_create_fit_card_happy_path():
+    item = _get_test_item()
+    outfit = suggest_outfit(item, get_example_wardrobe())
+    result = create_fit_card(outfit, item)
+    assert isinstance(result, str)
+    assert len(result) > 0
+
+
+def test_create_fit_card_empty_outfit():
+    item = _get_test_item()
+    result = create_fit_card("", item)
+    assert result == "Couldn't generate a fit card — no outfit suggestion was provided."
+
+
+def test_create_fit_card_whitespace_outfit():
+    item = _get_test_item()
+    result = create_fit_card("   ", item)
+    assert result == "Couldn't generate a fit card — no outfit suggestion was provided."
+
+
+def test_create_fit_card_mentions_item():
+    item = _get_test_item()
+    outfit = suggest_outfit(item, get_example_wardrobe())
+    result = create_fit_card(outfit, item)
+    result_lower = result.lower()
+    assert item["platform"].lower() in result_lower, "Caption should mention the platform"
+
+
+def test_create_fit_card_varies_output():
+    item = _get_test_item()
+    outfit = suggest_outfit(item, get_example_wardrobe())
+    result1 = create_fit_card(outfit, item)
+    result2 = create_fit_card(outfit, item)
+    assert result1 != result2, "Captions should vary between runs (temperature > 0)"

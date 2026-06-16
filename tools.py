@@ -16,7 +16,7 @@ import os
 
 from dotenv import load_dotenv
 from groq import Groq
-from prompts import SUGGEST_OUTFIT_SYSTEM, SUGGEST_OUTFIT_WITH_WARDROBE, SUGGEST_OUTFIT_EMPTY_WARDROBE
+from prompts import SUGGEST_OUTFIT_SYSTEM, SUGGEST_OUTFIT_WITH_WARDROBE, SUGGEST_OUTFIT_EMPTY_WARDROBE, CREATE_FIT_CARD_SYSTEM, CREATE_FIT_CARD_USER
 
 
 from utils.data_loader import load_listings
@@ -131,10 +131,13 @@ def suggest_outfit(new_item: dict, wardrobe: dict) -> str:
     """
     client = _get_groq_client()
 
-    item_desc = (
-        f"{new_item['title']} ({new_item['category']}, "
-        f"{', '.join(new_item['colors'])}, "
-        f"{', '.join(new_item['style_tags'])})"
+    item_fields = dict(
+        title=new_item["title"],
+        category=new_item["category"],
+        colors=", ".join(new_item["colors"]),
+        style_tags=", ".join(new_item["style_tags"]),
+        condition=new_item["condition"],
+        description=new_item["description"],
     )
 
     if wardrobe and wardrobe.get("items"):
@@ -142,15 +145,13 @@ def suggest_outfit(new_item: dict, wardrobe: dict) -> str:
             f"- {item['name']} ({item['category']}, {', '.join(item['colors'])})"
             for item in wardrobe['items']
             )
-        
+
         user_prompt = SUGGEST_OUTFIT_WITH_WARDROBE.format(
-            item_desc=item_desc, wardrobe_text=wardrobe_text
+            **item_fields, wardrobe_text=wardrobe_text
         )
-    
+
     else:
-        user_prompt = SUGGEST_OUTFIT_EMPTY_WARDROBE.format(
-            item_desc=item_desc
-        )
+        user_prompt = SUGGEST_OUTFIT_EMPTY_WARDROBE.format(**item_fields)
     
     try:
         response = client.chat.completions.create(
@@ -186,14 +187,33 @@ def create_fit_card(outfit: str, new_item: dict) -> str:
     - Mention the item name, price, and platform naturally (once each)
     - Capture the outfit vibe in specific terms
     - Sound different each time for different inputs (use higher LLM temperature)
-
-    TODO:
-        1. Guard against an empty or whitespace-only outfit string.
-        2. Build a prompt that gives the LLM the item details and the outfit,
-           and asks for a caption matching the style guidelines above.
-        3. Call the LLM and return the response.
-
-    Before writing code, fill in the Tool 3 section of planning.md.
     """
-    # Replace this with your implementation
-    return ""
+    if not outfit or not outfit.strip():
+        return "Couldn't generate a fit card — no outfit suggestion was provided."
+
+    client = _get_groq_client()
+
+    user_prompt = CREATE_FIT_CARD_USER.format(
+        title=new_item["title"],
+        price=new_item["price"],
+        platform=new_item["platform"],
+        category=new_item["category"],
+        colors=", ".join(new_item["colors"]),
+        style_tags=", ".join(new_item["style_tags"]),
+        condition=new_item["condition"],
+        description=new_item["description"],
+        outfit=outfit,
+    )
+
+    try:
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {"role": "system", "content": CREATE_FIT_CARD_SYSTEM},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.9,
+        )
+        return response.choices[0].message.content
+    except Exception:
+        return "Couldn't generate a fit card right now. Please try again later."
