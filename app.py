@@ -18,6 +18,18 @@ from agent import run_agent
 from utils.data_loader import get_example_wardrobe, get_empty_wardrobe
 
 
+def _format_listing(item: dict) -> str:
+    return (
+        f"{item['title']}\n"
+        f"Price: ${item['price']:.2f} on {item['platform']}\n"
+        f"Size: {item['size']} | Condition: {item['condition']}\n"
+        f"Category: {item['category']} | Brand: {item['brand'] or 'Unbranded'}\n"
+        f"Colors: {', '.join(item['colors'])}\n"
+        f"Style: {', '.join(item['style_tags'])}\n\n"
+        f"{item['description']}"
+    )
+
+
 # ── query handler ─────────────────────────────────────────────────────────────
 
 def handle_query(user_query: str, wardrobe_choice: str) -> tuple[str, str, str]:
@@ -25,15 +37,14 @@ def handle_query(user_query: str, wardrobe_choice: str) -> tuple[str, str, str]:
     Called by Gradio when the user submits a query.
 
     Args:
-        user_query:     The text the user typed into the search box.
+        user_query: The text the user typed into the search box.
         wardrobe_choice: Either "Example wardrobe" or "Empty wardrobe (new user)".
 
     Returns:
         A tuple of three strings:
             (listing_text, outfit_suggestion, fit_card)
         Each string maps to one of the three output panels in the UI.
-
-    TODO:
+        
         1. Guard against an empty query (return early with an error message).
         2. Select the wardrobe based on wardrobe_choice.
         3. Call run_agent() with the query and selected wardrobe.
@@ -43,8 +54,22 @@ def handle_query(user_query: str, wardrobe_choice: str) -> tuple[str, str, str]:
            string and return it along with session["outfit_suggestion"] and
            session["fit_card"].
     """
-    # TODO: implement this function
-    return "Agent not yet implemented.", "", ""
+    if not user_query or not user_query.strip():
+        return "Please enter a search query to get started!", "", ""
+    
+    if wardrobe_choice == "Example wardrobe":
+        wardrobe = get_example_wardrobe()
+    else:
+        wardrobe = get_empty_wardrobe()
+
+    result_session = run_agent(query=user_query, wardrobe=wardrobe)
+
+    if result_session["error"]:
+        return result_session["error"], "", ""
+    
+    selected_item = _format_listing(result_session["selected_item"])
+
+    return selected_item, result_session["outfit_suggestion"], result_session["fit_card"]
 
 
 # ── interface ─────────────────────────────────────────────────────────────────

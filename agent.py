@@ -164,9 +164,20 @@ if __name__ == "__main__":
         print(f"\nOutfit: {session['outfit_suggestion']}")
         print(f"\nFit card: {session['fit_card']}")
 
+    # ── State flow verification ──
+    print("\n=== State flow checks ===")
+    print(f"selected_item is search_results[0]: {session['selected_item'] is session['search_results'][0]}")
+    print(f"outfit_suggestion is non-empty: {bool(session['outfit_suggestion'])}")
+    print(f"fit_card is non-empty: {bool(session['fit_card'])}")
+    print(f"error is None: {session['error'] is None}")
+
+    # ── No-results path ──
     print("\n\n=== No-results path ===\n")
     session2 = run_agent(
         query="designer ballgown size XXS under $5",
         wardrobe=get_example_wardrobe(),
     )
     print(f"Error message: {session2['error']}")
+    print(f"fit_card is None: {session2['fit_card'] is None}")
+    print(f"outfit_suggestion is None: {session2['outfit_suggestion'] is None}")
+    print(f"search_results is empty: {session2['search_results'] == []}")
