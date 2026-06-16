@@ -23,7 +23,7 @@ Given user input, this tool will do a keyword matching against all the listings 
 
 **Input parameters:**
 <!-- List each parameter, its type, and what it represents -->
-- `description` (str): The description of the 
+- `description` (str): Keywords describing what the user is looking for (e.g., "vintage graphic tee")
 - `size` (str): optional; the size of the garment/shoe that the user wants
 - `max_price` (float): option; the max price that user wants to spend on the new item.
 
@@ -34,7 +34,7 @@ Given user input, this tool will do a keyword matching against all the listings 
 
 **What happens if it fails or returns nothing:**
 <!-- What should the agent do if no listings match? -->
-- When suggest_listinghs loop returns nothing, the agent stops and sends a message to the user stating 'No matches found. Please try again with a broder category, size or prices'.
+- When `search_listings` returns nothing, the agent stops and sends a message to the user stating "No listings found matching your search. Try broadening your filters."
 
 ---
 
@@ -56,7 +56,7 @@ Given the new listing matched with user's preference and user's wardrobe, `sugge
 
 **What happens if it fails or returns nothing:**
 <!-- What should the agent do if the wardrobe is empty or no outfit can be suggested? -->
-- The tool `suggest_output`is desgined to not fail on an empty wardrobe. When the wardrobe is empty, the LLM is required to offer a general advice.
+- The tool `suggest_outfit` is designed to not fail on an empty wardrobe. When the wardrobe is empty, the LLM is required to offer general advice.
 - In case of an LLM error, send a friendly message to the user stating "couldn't generate at the moment. Please try again later" and skip caption creation step.
 
 ---
@@ -70,15 +70,15 @@ Generates Instagram/Tiktok ready to share caption for suggested outfit.
 **Input parameters:**
 <!-- List each parameter, its type, and what it represents -->
 - `outfit` (str): The outfit suggestion created by the tool `suggest_outfit`
-- `new_item` (dict): The top matched list from `search_listings` that matches user's preference.
+- `new_item` (dict): The top matched listing from `search_listings` that matches user's preference.
 
 **What it returns:**
 <!-- Describe the return value -->
-- A string output of 2-4 sentences that is a redy-to-use Instagram/Tiktok caption
+- A string output of 2-4 sentences that is a ready-to-use Instagram/TikTok caption
 
 **What happens if it fails or returns nothing:**
 <!-- What should the agent do if the outfit data is incomplete? -->
-- The tool we provide agent with a friendly message such as: "Couldn't generate a fit card — no outfit suggestion was provided."
+- The tool returns a friendly message: "Couldn't generate a fit card — no outfit suggestion was provided."
 
 ---
 
@@ -92,8 +92,11 @@ Generates Instagram/Tiktok ready to share caption for suggested outfit.
 
 **How does your agent decide which tool to call next?**
 <!-- Describe the logic your planning loop uses. What does it look at? What conditions change its behavior? How does it know when it's done? -->
-#### *The application starts when user enters input and LLM parses it. After this, the planning loop of the agent begins. The following steps will happen in the planning loop.*
-1. Tool `search_listings` is called with the parsed user input.
+#### *The application starts when user enters input. The agent first parses the query, then runs the planning loop.*
+
+0. **Query Parsing** — The agent calls `_parse_user_query()`, which sends the raw query to the Groq LLM (`llama-3.3-70b-versatile`, temperature 0.0) with few-shot examples. The LLM extracts three fields: `description` (keywords only), `size` (normalized — e.g., "medium" → "M"), and `max_price` (as a number). The result is stored in `session["parsed"]`. If the LLM fails or returns invalid JSON, the fallback uses the raw query as `description` with `size` and `max_price` set to `null`.
+
+1. Tool `search_listings` is called with the parsed fields (`description`, `size`, `max_price`).
      - If the tool runs successfully and is able to find a match, the result is stored in *session.search_results* and next tool is called.
      - If there is an error, the agent stops the loops and provides message to the user to try again.
 2. If the tool `suggest_outfit` is called with the new_item as well as user's wardrobe.
@@ -241,4 +244,4 @@ Write out what a full user interaction looks like from start to finish — tool 
 
 **Final output to user:**
 <!-- What does the user actually see at the end? -->
-- The user on the screen sees the top matchinbg listing from `search_listings`, outfit idea from `suggest_outfit` and the instagram caption from the last tool `create_fit_card`.
+- The user on the screen sees the top matching listing from `search_listings`, outfit idea from `suggest_outfit`, and the Instagram caption from the last tool `create_fit_card`.
