@@ -34,7 +34,9 @@ Given user input, this tool will do a keyword matching against all the listings 
 
 **What happens if it fails or returns nothing:**
 <!-- What should the agent do if no listings match? -->
-- When `search_listings` returns nothing, the agent stops and sends a message to the user stating "No listings found matching your search. Try broadening your filters."
+- When `search_listings` returns nothing, the planning loop does **not** stop immediately. It retries with loosened constraints (see the "Stretch Feature: Retry with fallback" section): first it drops the price ceiling, then the size filter, re-calling `search_listings` each time. Only the filters that were actually set get relaxed.
+- If a retry succeeds, the agent records a short note (e.g. "No matches under $30 in size M — showing items at all prices.") that is shown to the user above the listing.
+- Only if every set filter has been removed and there are still no results (or there were no filters to relax) does the agent set `session["error"]` and stop without calling `suggest_outfit`.
 
 ---
 
@@ -97,8 +99,9 @@ Generates Instagram/Tiktok ready to share caption for suggested outfit.
 0. **Query Parsing** — The agent calls `_parse_user_query()`, which sends the raw query to the Groq LLM (`llama-3.3-70b-versatile`, temperature 0.0) with few-shot examples. The LLM extracts three fields: `description` (keywords only), `size` (normalized — e.g., "medium" → "M"), and `max_price` (as a number). The result is stored in `session["parsed"]`. If the LLM fails or returns invalid JSON, the fallback uses the raw query as `description` with `size` and `max_price` set to `null`.
 
 1. Tool `search_listings` is called with the parsed fields (`description`, `size`, `max_price`).
-     - If the tool runs successfully and is able to find a match, the result is stored in *session.search_results* and next tool is called.
-     - If there is an error, the agent stops the loops and provides message to the user to try again.
+     - If a match is found, the results are stored in *session.search_results*, the top result in *session.selected_item*, and the next tool is called.
+     - If no match is found, the loop retries with loosened constraints — first dropping the price ceiling, then the size filter (only filters that were actually set). If a retry succeeds, a note explaining what was relaxed is stored in *session.search_note* and the loop continues.
+     - Only if every set filter has been removed and there are still no results does the agent set *session.error* and stop without calling the next tools.
 2. If the tool `suggest_outfit` is called with the new_item as well as user's wardrobe.
      - If the wardrobe is empty, then the tool is supposed to provide a general styling advice, otherwise it matches the new_item with the wardrobe to suggest the outfit.
      - If the LLM fails, then that means the tool call has failed and we stop the loop. Otherwise the next tool is called.
@@ -125,6 +128,7 @@ Generates Instagram/Tiktok ready to share caption for suggested outfit.
 | `wardrobe` | `_new_session()` | `suggest_outfit` | Passed in from UI |
 | `outfit_suggestion` | `suggest_outfit` (Step 5) | `create_fit_card` | `None` |
 | `fit_card` | `create_fit_card` (Step 6) | Final output to user | `None` |
+| `search_note` | `search_listings` retry (Step 3) | `handle_query()` in app.py | `None` |
 | `error` | Any step that fails | `handle_query()` in app.py | `None` |
 
 - The session dict is the **single source of truth**. No data is passed between tools directly — every tool writes to the session, and the next tool reads from it.
@@ -138,7 +142,7 @@ For each tool, describe the specific failure mode you're handling and what the a
 
 | Tool | Failure mode | Agent response |
 |------|-------------|----------------|
-| search_listings | No results match the query | Set `session["error"]` to "No listings matched your search. Try broader keywords, a different size, or a higher price." and return the session early. Tools 2 and 3 are **not called**. |
+| search_listings | No results match the query | Retry with loosened constraints (drop price, then size — see "Stretch Feature: Retry with fallback"). If a retry finds results, store a note in `session["search_note"]` and continue. Only if every set filter has been removed and still nothing matches, set `session["error"]` to "No listings matched even after removing your size and price filters. Try different keywords." and return early — tools 2 and 3 are **not called**. |
 | suggest_outfit | Wardrobe is empty | Not a failure — the tool handles this internally by asking the LLM for general styling advice instead of wardrobe-specific outfits. The loop continues normally. |
 | suggest_outfit | Groq API call fails (timeout, rate limit, bad key) | The tool catches the exception internally and returns a friendly message string: "Couldn't generate outfit suggestions right now. Please try again later." No exception is raised to the agent. |
 | create_fit_card | Outfit input is empty or whitespace | The tool returns a descriptive error message string: "Couldn't generate a fit card — no outfit suggestion was provided." No exception is raised. |
@@ -154,10 +158,18 @@ flowchart TD
     UQ -- "output: user_query" --> INIT["session.query = user_query\nsession.wardrobe = wardrobe"]
     INIT --> PARSE[LLM Parser]
     PARSE -- "output: parsed_query" --> STORE_PARSED["session.parsed = parsed_query"]
-    STORE_PARSED --> T1[Tool 1: search_listings]
-    T1 -- "search_listings output" --> D1{found listing?}
-    D1 -- "yes" --> STORE_SEARCH["session.search_results = search_results"]
-    D1 -- "no" --> ERR["session.error = error"]
+    STORE_PARSED --> T1["Tool 1: search_listings\n(description + size + price)"]
+    T1 --> D1{found listing?}
+    D1 -- "yes" --> STORE_SEARCH["session.search_results = results\nsession.selected_item = results[0]\nsession.search_note = note"]
+    D1 -- "no, price was set" --> T1B["retry: search_listings\n(drop price)"]
+    D1 -- "no, no filters to loosen" --> ERR["session.error = error"]
+    T1B --> D1B{found listing?}
+    D1B -- "yes" --> STORE_SEARCH
+    D1B -- "no, size was set" --> T1C["retry: search_listings\n(drop size + price)"]
+    D1B -- "no, size not set" --> ERR
+    T1C --> D1C{found listing?}
+    D1C -- "yes" --> STORE_SEARCH
+    D1C -- "no" --> ERR
     STORE_SEARCH --> T2[Tool 2: suggest_outfit]
     T2 --> D2{got output?}
     D2 -- "yes" --> STORE_OUTFIT["session.outfit_suggestion = outfit"]
@@ -170,7 +182,7 @@ flowchart TD
     ERR --> END_ERR([End])
 ```
 
-*See also: `assets/architecture.excalidraw` for visual version of this diagram.*
+*The Mermaid diagram above is the source of truth. `assets/architecture.excalidraw` is a hand-drawn visual of the base happy-path flow and does not show the retry-with-fallback tiers added later (drop price → drop size); see the "Stretch Feature: Retry with fallback" section for those.*
 
 ---
 
@@ -245,3 +257,27 @@ Write out what a full user interaction looks like from start to finish — tool 
 **Final output to user:**
 <!-- What does the user actually see at the end? -->
 - The user on the screen sees the top matching listing from `search_listings`, outfit idea from `suggest_outfit`, and the Instagram caption from the last tool `create_fit_card`.
+
+---
+
+## Stretch Feature: Retry with fallback
+
+**Goal:** When `search_listings` returns nothing, the agent should not give up at the first empty result. Instead it loosens one constraint and tries again, telling the user exactly what it changed — turning a dead end into a reaction the planning loop makes based on the tool's result.
+
+**Where it lives:** A helper `_search_with_fallback(parsed)` in `agent.py`. The `search_listings` tool itself is unchanged — all retry logic stays in the planning loop. The helper returns `(results, note)`, where `note` is `None` on an exact match or a sentence describing what was relaxed. `run_agent` stores `note` in `session["search_note"]`, and `app.py` prepends it (with an ℹ️) above the listing panel.
+
+**Loosening order — price first, then size.** Size is a physical constraint (a wrong-size item won't fit); price is a soft preference. Relaxing price first keeps the user in their real size as long as possible. Only filters that were *actually set* get relaxed — if the query had no size and no price, there is nothing to loosen, so the agent gives up immediately rather than mangling the description keywords.
+
+| Tier | Query | Fires when | User-facing note |
+|------|-------|------------|------------------|
+| 1 | description + size + max_price | always | none (exact match) |
+| 2 | description + size, **price dropped** | a `max_price` was set | "No matches under $X in size {size} — showing items at all prices." |
+| 3 | description, **size + price dropped** | a `size` was set | "No matches in size {size} — showing all sizes and prices." |
+| fail | — | nothing left to loosen, or still empty | "No listings matched even after removing your size and price filters. Try different keywords." |
+
+**Edge cases:**
+- No size, no price → tiers 2/3 skipped → immediate, honest give-up.
+- Price set, size None → tier 2 fires (drops price); tier 3 is a no-op.
+- Size set, price None → tier 2 skipped; tier 3 fires (drops size).
+
+**Tests:** `tests/test_agent.py` covers all four branches by calling `_search_with_fallback` directly (no LLM/network): exact match (no note), price-dropped, size-dropped, and the no-filter give-up.
