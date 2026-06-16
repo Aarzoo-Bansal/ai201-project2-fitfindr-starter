@@ -18,7 +18,36 @@ Usage (once implemented):
     print(result["error"])   # None on success
 """
 
+import json
+
 from tools import search_listings, suggest_outfit, create_fit_card
+from utils.llm_client import get_groq_client
+from prompts import PARSE_QUERY_SYSTEM, PARSE_QUERY_USER
+
+# ── parse user query ──────────────────────────────────────────────────────────
+def _parse_user_query(query: str) -> dict:
+    _client = get_groq_client()
+
+    user_query = PARSE_QUERY_USER.format(query=query)
+
+    try:
+        response = _client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages = [
+                {"role": "system", "content": PARSE_QUERY_SYSTEM},
+                {"role": "user", "content": user_query},
+            ],
+            temperature=0.0
+        )
+        print(response.choices[0].message.content)
+        return json.loads(response.choices[0].message.content)
+    except Exception:
+        return {
+            "description": query,
+            "size": None,
+            "max_price": None,
+        }
+
 
 
 # ── session state ─────────────────────────────────────────────────────────────
@@ -92,9 +121,31 @@ def run_agent(query: str, wardrobe: dict) -> dict:
     Before writing code, complete the Planning Loop and State Management sections
     of planning.md — your implementation should match what you described there.
     """
-    # TODO: implement the planning loop
     session = _new_session(query, wardrobe)
-    session["error"] = "Planning loop not yet implemented."
+
+    # Parsing User Query
+    session["parsed"] = _parse_user_query(query=query)
+
+    # Calling Tool1: search_listings
+    search_results = search_listings(
+        description=session["parsed"]["description"],
+        size=session["parsed"]["size"],
+        max_price=session["parsed"]["max_price"]
+    )
+
+    if not search_results:
+        session["error"] = "No listings found matching your search. Try broadening your filters."
+        return session
+    
+    session["search_results"] = search_results
+    session["selected_item"] = search_results[0]
+    
+    # Calling Tool2: suggest_outfit
+    session["outfit_suggestion"] = suggest_outfit(new_item=session["selected_item"], wardrobe=session["wardrobe"])
+
+    # Calling Tool3: create_fit_card
+    session["fit_card"] = create_fit_card(outfit=session["outfit_suggestion"], new_item=session["selected_item"])
+
     return session
 
 

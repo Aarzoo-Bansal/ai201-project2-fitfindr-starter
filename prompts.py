@@ -70,6 +70,9 @@ Rules:
 - size: normalize English words to standard abbreviations (small → S, medium → M, large → L, extra large → XL, extra small → XS). Keep numeric sizes as-is (e.g., "8", "10"). Set to null if not mentioned.
 - max_price: extract as a number. Set to null if not mentioned.
 
+Output Format (JSON):
+{"description": <string>, "size": <string or null>, "max_price": <number or null>}
+
 Examples:
 
 Query: "I'm looking for a vintage graphic tee under $30"
